@@ -212,7 +212,6 @@ function ModelsPage() {
   const [sliderPos, setSliderPos] = useState(50);
   const [refineMode, setRefineMode] = useState(false);
   const [isUpscaling, setIsUpscaling] = useState(false);
-  const falApiKey = import.meta.env.VITE_FAL_API_KEY;
   const fileRef = useRef(null);
 
   const showToast = (msg, type = "error") => {
@@ -274,8 +273,7 @@ function ModelsPage() {
   };
 
   const handleUpscale = async () => {
-    if (!generatedImage || !falApiKey) {
-      if (!falApiKey) showToast("Fal.ai API token missing.");
+    if (!generatedImage) {
       return;
     }
     
@@ -287,7 +285,6 @@ function ModelsPage() {
       const response = await fetch("/api/fal/fal-ai/esrgan", {
         method: "POST",
         headers: {
-          "Authorization": `Key ${falApiKey}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -303,9 +300,7 @@ function ModelsPage() {
       let isCompleted = false;
       while (!isCompleted) {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const pollResponse = await fetch(`/api/fal/fal-ai/esrgan/requests/${reqId}/status`, {
-          headers: { "Authorization": `Key ${falApiKey}` }
-        });
+        const pollResponse = await fetch(`/api/fal/fal-ai/esrgan/requests/${reqId}/status`);
         const pollData = await pollResponse.json();
         
         if (pollData.status === "COMPLETED") {
@@ -316,9 +311,7 @@ function ModelsPage() {
         setProgressText(`Upscaling... ${pollData.status}`);
       }
       
-      const resResponse = await fetch(`/api/fal/fal-ai/esrgan/requests/${reqId}`, {
-        headers: { "Authorization": `Key ${falApiKey}` }
-      });
+      const resResponse = await fetch(`/api/fal/fal-ai/esrgan/requests/${reqId}`);
       const resData = await resResponse.json();
         
       if (resData.image && resData.image.url) {
@@ -365,11 +358,10 @@ function ModelsPage() {
     };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, []);
+  }, [processFile]);
 
   const handleRewritePrompt = async () => {
     if (!prompt) return showToast("Please enter a basic prompt first to refine.");
-    if (!falApiKey) return showToast("Fal.ai API token missing.");
     
     setIsRewriting(true);
     let originalPrompt = prompt;
@@ -379,7 +371,6 @@ function ModelsPage() {
       const response = await fetch("/api/fal/fal-ai/any-llm", {
         method: "POST",
         headers: {
-          "Authorization": `Key ${falApiKey}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -396,9 +387,7 @@ function ModelsPage() {
       let isCompleted = false;
       while (!isCompleted) {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const pollResponse = await fetch(`/api/fal/fal-ai/any-llm/requests/${reqId}/status`, {
-          headers: { "Authorization": `Key ${falApiKey}` }
-        });
+        const pollResponse = await fetch(`/api/fal/fal-ai/any-llm/requests/${reqId}/status`);
         const pollData = await pollResponse.json();
         
         if (pollData.status === "COMPLETED") {
@@ -408,9 +397,7 @@ function ModelsPage() {
         }
       }
 
-      const finalResponse = await fetch(`/api/fal/fal-ai/any-llm/requests/${reqId}`, {
-        headers: { "Authorization": `Key ${falApiKey}` }
-      });
+      const finalResponse = await fetch(`/api/fal/fal-ai/any-llm/requests/${reqId}`);
       const finalData = await finalResponse.json();
       
       if (finalData.output) {
@@ -437,7 +424,7 @@ function ModelsPage() {
     setGeneratedImage(null);
 
     try {
-      if (falApiKey && uploadedImage) {
+      if (uploadedImage) {
         setProgress(20);
         setProgressText("Uploading model payload to fal.ai...");
 
@@ -473,7 +460,6 @@ function ModelsPage() {
         const response = await fetch("/api/fal/fal-ai/sd15-depth-controlnet", {
           method: "POST",
           headers: {
-            "Authorization": `Key ${falApiKey}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
@@ -496,9 +482,7 @@ function ModelsPage() {
         let isCompleted = false;
         while (!isCompleted) {
           await new Promise(resolve => setTimeout(resolve, 1000));
-          const pollResponse = await fetch(`/api/fal/fal-ai/sd15-depth-controlnet/requests/${reqId}/status`, {
-            headers: { "Authorization": `Key ${falApiKey}` }
-          });
+          const pollResponse = await fetch(`/api/fal/fal-ai/sd15-depth-controlnet/requests/${reqId}/status`);
           const pollData = await pollResponse.json();
           if (pollData.status === "COMPLETED") {
              isCompleted = true;
@@ -511,9 +495,7 @@ function ModelsPage() {
           }
         }
 
-        const resResponse = await fetch(`/api/fal/fal-ai/sd15-depth-controlnet/requests/${reqId}`, {
-            headers: { "Authorization": `Key ${falApiKey}` }
-        });
+        const resResponse = await fetch(`/api/fal/fal-ai/sd15-depth-controlnet/requests/${reqId}`);
         const resData = await resResponse.json();
 
         if (resData.images && resData.images.length > 0) {
@@ -545,7 +527,6 @@ function ModelsPage() {
           imageUrl={generatedImage} 
           onClose={() => setRefineMode(false)} 
           generatedImageSetter={setGeneratedImage}
-          falApiKey={falApiKey}
         />
       )}
       <div className="grid grid-cols-1 md:grid-cols-[312px_1fr_280px] flex-1 min-h-[calc(100vh-60px)]">
