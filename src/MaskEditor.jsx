@@ -265,10 +265,30 @@ export default function MaskEditor({ imageUrl, onClose, generatedImageSetter }) 
     try {
       const maskBase64 = generateMaskBase64();
       
+      // Convert mask to File and upload directly to Fal CDN
+      const b64toBlob = (b64Data, contentType='', sliceSize=512) => {
+        const byteCharacters = atob(b64Data.split(',')[1]);
+        const byteArrays = [];
+        for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+          const slice = byteCharacters.slice(offset, offset + sliceSize);
+          const byteNumbers = new Array(slice.length);
+          for (let i = 0; i < slice.length; i++) {
+            byteNumbers[i] = slice.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          byteArrays.push(byteArray);
+        }
+        return new Blob(byteArrays, {type: contentType});
+      };
+      
+      const maskBlob = b64toBlob(maskBase64, 'image/png');
+      const maskFile = new File([maskBlob], "mask_image.png", { type: "image/png" });
+      const uploadedMaskUrl = await fal.storage.upload(maskFile);
+      
       const result = await fal.subscribe("fal-ai/fast-sdxl/inpainting", {
         input: {
           image_url: imageUrl,
-          mask_url: maskBase64,
+          mask_url: uploadedMaskUrl,
           prompt: prompt + ", extremely detailed, architectural rendering"
         },
         logs: true,

@@ -12,6 +12,7 @@ fal.config({ proxyUrl: "/api/fal" });
 const PAGES = { HOME: "home", MODELS: "models", GALLERY: "gallery" };
 
 const ASPECT_RATIOS = [
+  { label: "Original", value: "original" },
   { label: "16:9 Landscape", value: "16:9" },
   { label: "4:3 Standard", value: "4:3" },
   { label: "1:1 Square", value: "1:1" },
@@ -195,9 +196,10 @@ function HomePage({ setPage }) {
 
 // ── Models Page (Image Generation) ────────────────────────────
 function ModelsPage() {
-  const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [aspectRatio, setAspectRatio] = useState("original");
   const [geoFidelity, setGeoFidelity] = useState(92);
   const [atmosphere, setAtmosphere] = useState(0.65);
+  const [imageDimensions, setImageDimensions] = useState({ width: 1024, height: 768 });
   
   const [activePrompts, setActivePrompts] = useState(
     promptConfig.reduce((acc, cat) => ({ ...acc, [cat.key]: cat.default }), {})
@@ -240,12 +242,17 @@ function ModelsPage() {
             height = maxSize;
           }
         }
+        
+        // Ensure width and height are multiples of 8 for Stable Diffusion
+        width = Math.round(width / 8) * 8;
+        height = Math.round(height / 8) * 8;
+        
         const canvas = document.createElement("canvas");
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.9));
+        resolve({ dataUrl: canvas.toDataURL("image/jpeg", 0.9), width, height });
       };
     });
   };
@@ -254,8 +261,9 @@ function ModelsPage() {
     if (!file || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
     reader.onload = async (ev) => {
-      const resized = await resizeImage(ev.target.result);
-      setUploadedImage(resized);
+      const { dataUrl, width, height } = await resizeImage(ev.target.result);
+      setUploadedImage(dataUrl);
+      setImageDimensions({ width, height });
     };
     reader.readAsDataURL(file);
   }, []);
@@ -431,8 +439,34 @@ function ModelsPage() {
 
     try {
       if (uploadedImage) {
-        setProgress(20);
-        setProgressText("Uploading and requesting from fal.ai...");
+        setProgress(15);
+        setProgressText("Uploading model payload directly to CDN...");
+
+        // Convert Base64 data URL to File object for direct upload
+        const b64toBlob = (b64Data, contentType='', sliceSize=512) => {
+          const byteCharacters = atob(b64Data.split(',')[1]);
+          const byteArrays = [];
+          for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+            const slice = byteCharacters.slice(offset, offset + sliceSize);
+            const byteNumbers = new Array(slice.length);
+            for (let i = 0; i < slice.length; i++) {
+              byteNumbers[i] = slice.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            byteArrays.push(byteArray);
+          }
+          return new Blob(byteArrays, {type: contentType});
+        };
+        
+        const blob = b64toBlob(uploadedImage, 'image/jpeg');
+        const file = new File([blob], "control_image.jpg", { type: "image/jpeg" });
+        
+        // This securely gets a presigned URL via our proxy, then uploads binary direct to Fal bypassing Vercel
+        const uploadResult = await fal.storage.upload(file);
+        const cdnImageUrl = uploadResult; // Using the returned CDN URL
+
+        setProgress(30);
+        setProgressText("Requesting generation...");
 
         let dynamicPrompt = "";
         let dynamicNegative = "";
@@ -463,14 +497,28 @@ function ModelsPage() {
         const finalPrompt = `${prompt},${dynamicPrompt} best quality, extremely detailed, photorealistic architectural rendering`;
         const baseNegative = (negativePrompt ? negativePrompt + ", " : "") + dynamicNegative + " blurry, low quality, distorted, watermark, cartoon, painting";
 
+        let falImageSize = "landscape_4_3";
+        if (aspectRatio === "original" && imageDimensions) {
+            // fal API allows specifying custom dictionary for image_size
+            falImageSize = { width: imageDimensions.width, height: imageDimensions.height };
+        } else if (aspectRatio === "16:9") {
+            falImageSize = "landscape_16_9";
+        } else if (aspectRatio === "4:3") {
+            falImageSize = "landscape_4_3";
+        } else if (aspectRatio === "1:1") {
+            falImageSize = "square_hd";
+        } else if (aspectRatio === "9:16") {
+            falImageSize = "portrait_16_9";
+        }
+
         const result = await fal.subscribe("fal-ai/sd15-depth-controlnet", {
           input: {
             prompt: finalPrompt,
-            control_image_url: uploadedImage,
+            control_image_url: cdnImageUrl,
             negative_prompt: baseNegative,
             num_inference_steps: 20, // Reduced from 25 for dramatic speedup
             controlnet_conditioning_scale: 0.9,
-            image_size: "landscape_4_3"
+            image_size: falImageSize
           },
           logs: true,
           onQueueUpdate: (update) => {

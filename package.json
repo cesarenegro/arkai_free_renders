@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@fal-ai/client": "^1.9.5",
+    "@fal-ai/serverless-proxy": "^0.10.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
