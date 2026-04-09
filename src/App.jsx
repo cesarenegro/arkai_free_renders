@@ -55,9 +55,7 @@ function Navbar({ page, setPage, showGalleryActions, setSettingsOpen }) {
     <nav className="flex items-center justify-between px-8 h-[60px] bg-surface border-b border-border-light sticky top-0 z-[100]">
       <div style={{ display: "flex", alignItems: "center", gap: 32 }}>
         <a href="https://arkai.archi" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary no-underline">
-          {/* Using favicon as a placeholder logo, assuming it resembles the brand icon */}
-          <img src="/favicon.svg" alt="Arkai Logo" className="w-6 h-6" />
-          <span className="font-bold text-[20px] tracking-[1.5px]">ARKAI</span>
+          <img src="/logo.png" alt="Arkai Logo" className="h-6 object-contain" />
         </a>
         <div className="flex gap-7 items-center">
           <span className={`text-[14px] font-medium text-secondary cursor-pointer no-underline py-1 border-b-2 transition-all duration-200 hover:text-primary ${page === PAGES.MODELS ? 'text-primary border-accent-primary' : 'border-transparent'}`} onClick={() => setPage(PAGES.MODELS)}>Models</span>
