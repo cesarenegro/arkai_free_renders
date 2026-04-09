@@ -1,12 +1,14 @@
 /* eslint-env node */
 export default async function handler(req, res) {
-  // Extract path from req.url: e.g. /api/fal/fal-ai/any-llm -> fal-ai/any-llm
-  // In Vercel, req.url may include query parameters, so parse it.
-  const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
-  const match = parsedUrl.pathname.match(/^\/api\/fal\/(.+)$/);
-  const targetPath = match ? match[1] : '';
-  const targetUrl = `https://queue.fal.run/${targetPath}${parsedUrl.search}`;
+  let targetUrl = req.headers['x-fal-target-url'];
   
+  if (!targetUrl) {
+    const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+    const match = parsedUrl.pathname.match(/^\/api\/fal\/(.+)$/);
+    const targetPath = match ? match[1] : '';
+    targetUrl = `https://queue.fal.run/${targetPath}${parsedUrl.search}`;
+  }
+
   // Use VITE_FAL_API_KEY from environment variables (you configure this in Vercel)
   const apiKey = process.env.VITE_FAL_API_KEY || process.env.FAL_API_KEY;
 

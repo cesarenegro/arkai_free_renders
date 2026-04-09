@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Client } from "@gradio/client";
+import { fal } from "@fal-ai/client";
 import MaskEditor from "./MaskEditor";
 
 import { promptConfig } from "./config/prompts";
+
+fal.config({ proxyUrl: "/api/fal" });
+
 
 // ── Constants ──────────────────────────────────────────────────
 const PAGES = { HOME: "home", MODELS: "models", GALLERY: "gallery" };
@@ -428,7 +432,7 @@ function ModelsPage() {
     try {
       if (uploadedImage) {
         setProgress(20);
-        setProgressText("Uploading model payload to fal.ai...");
+        setProgressText("Uploading and requesting from fal.ai...");
 
         let dynamicPrompt = "";
         let dynamicNegative = "";
@@ -459,49 +463,29 @@ function ModelsPage() {
         const finalPrompt = `${prompt},${dynamicPrompt} best quality, extremely detailed, photorealistic architectural rendering`;
         const baseNegative = (negativePrompt ? negativePrompt + ", " : "") + dynamicNegative + " blurry, low quality, distorted, watermark, cartoon, painting";
 
-        const response = await fetch("/api/fal/fal-ai/sd15-depth-controlnet", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
+        const result = await fal.subscribe("fal-ai/sd15-depth-controlnet", {
+          input: {
             prompt: finalPrompt,
             control_image_url: uploadedImage,
             negative_prompt: baseNegative,
-            num_inference_steps: 25,
+            num_inference_steps: 20, // Reduced from 25 for dramatic speedup
             controlnet_conditioning_scale: 0.9,
             image_size: "landscape_4_3"
-          })
-        });
-        
-        let prediction = await response.json();
-        if (!response.ok) throw new Error(prediction.detail || "Failed to create fal.ai prediction");
-        
-        const reqId = prediction.request_id;
-        setProgress(50);
-        setProgressText("Processing (this may take a moment)...");
-
-        let isCompleted = false;
-        while (!isCompleted) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          const pollResponse = await fetch(`/api/fal/fal-ai/sd15-depth-controlnet/requests/${reqId}/status`);
-          const pollData = await pollResponse.json();
-          if (pollData.status === "COMPLETED") {
-             isCompleted = true;
-          } else if (pollData.status === "IN_PROGRESS") {
-             setProgress((p) => Math.min(p + 5, 95));
-          } else if (pollData.status === "QUEUED") {
-             setProgress(55);
-          } else if (pollData.status === "ERROR" || pollData.status === "FAILED") {
-             throw new Error("Generation failed: " + pollData.error);
+          },
+          logs: true,
+          onQueueUpdate: (update) => {
+            if (update.status === "IN_PROGRESS") {
+               setProgress((p) => Math.min(p + 5, 95));
+               setProgressText("Drafting architecture...");
+            } else if (update.status === "QUEUED") {
+               setProgress(55);
+               setProgressText("In rendering queue...");
+            }
           }
-        }
+        });
 
-        const resResponse = await fetch(`/api/fal/fal-ai/sd15-depth-controlnet/requests/${reqId}`);
-        const resData = await resResponse.json();
-
-        if (resData.images && resData.images.length > 0) {
-          setGeneratedImage(resData.images[0].url);
+        if (result.data && result.data.images && result.data.images.length > 0) {
+          setGeneratedImage(result.data.images[0].url);
           setProgress(100);
           setProgressText("Complete!");
           setRenderId("ARK-" + Math.random().toString(36).substring(2, 8).toUpperCase());

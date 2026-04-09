@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { fal } from "@fal-ai/client";
 
 const QUICK_PROMPTS = [
   "Natural Wood",
@@ -20,7 +21,7 @@ const QUICK_PROMPTS_MAP = {
   "Fix Lighting": "warm ambient interior lighting, soft shadows, golden hour quality, no harsh spots",
 };
 
-export default function MaskEditor({ imageUrl, onClose, generatedImageSetter, falApiKey }) {
+export default function MaskEditor({ imageUrl, onClose, generatedImageSetter }) {
   const containerRef = useRef(null);
   const mainCanvasRef = useRef(null);
   const previewCanvasRef = useRef(null);
@@ -259,58 +260,27 @@ export default function MaskEditor({ imageUrl, onClose, generatedImageSetter, fa
       alert("Please enter a prompt for the masked area.");
       return;
     }
-    if (!falApiKey) {
-      alert("Fal.ai API Key is missing. Please set it in .env.");
-      return;
-    }
 
     setIsGenerating(true);
     try {
       const maskBase64 = generateMaskBase64();
       
-      const response = await fetch("/api/fal/fal-ai/fast-sdxl/inpainting", {
-        method: "POST",
-        headers: {
-          "Authorization": `Key ${falApiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
+      const result = await fal.subscribe("fal-ai/fast-sdxl/inpainting", {
+        input: {
           image_url: imageUrl,
           mask_url: maskBase64,
           prompt: prompt + ", extremely detailed, architectural rendering"
-        })
-      });
-
-      let prediction = await response.json();
-      if (!response.ok) {
-        throw new Error(prediction.detail || "Failed to create Fal.ai prediction");
-      }
-
-      const reqId = prediction.request_id;
-      let isCompleted = false;
-      while (!isCompleted) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const pollResponse = await fetch(`/api/fal/fal-ai/fast-sdxl/requests/${reqId}/status`, {
-          headers: {
-            "Authorization": `Key ${falApiKey}`
+        },
+        logs: true,
+        onQueueUpdate: (update) => {
+          if (update.status === "IN_PROGRESS") {
+             console.log(update.logs.map((log) => log.message));
           }
-        });
-        const pollData = await pollResponse.json();
-        
-        if (pollData.status === "COMPLETED") {
-          isCompleted = true;
-        } else if (pollData.status === "ERROR" || pollData.status === "FAILED") {
-          throw new Error("Inpainting failed.");
         }
-      }
-
-      const resResponse = await fetch(`/api/fal/fal-ai/fast-sdxl/requests/${reqId}`, {
-        headers: { "Authorization": `Key ${falApiKey}` }
       });
-      const resData = await resResponse.json();
 
-      if (resData.images && resData.images.length > 0) {
-        generatedImageSetter(resData.images[0].url); 
+      if (result.data && result.data.images && result.data.images.length > 0) {
+        generatedImageSetter(result.data.images[0].url); 
         clearMask();
         onClose(); 
       } else {
