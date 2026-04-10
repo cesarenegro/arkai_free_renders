@@ -55,16 +55,16 @@ const IMAGES = {
 };
 
 // ── Navbar ─────────────────────────────────────────────────────
-function Navbar({ page, setPage, showGalleryActions, setSettingsOpen }) {
+function Navbar({ page, setPage, showGalleryActions, setSettingsOpen, setHistoryOpen }) {
   return (
     <nav className="flex items-center justify-between px-8 h-[60px] bg-surface border-b border-border-light sticky top-0 z-[100]">
       <div style={{ display: "flex", alignItems: "center", gap: 32 }}>
         <a href="https://arkai.archi" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary no-underline">
-          <img src="/logo.png" alt="Arkai Logo" className="h-6 object-contain" />
+          <img src="/arkai-logo.png" alt="Arkai Logo" className="h-[28px] object-contain" />
         </a>
         <div className="flex gap-7 items-center">
           <span className={`text-[14px] font-medium text-secondary cursor-pointer no-underline py-1 border-b-2 transition-all duration-200 hover:text-primary ${page === PAGES.MODELS ? 'text-primary border-accent-primary' : 'border-transparent'}`} onClick={() => setPage(PAGES.MODELS)}>Models</span>
-          <span className={`text-[14px] font-medium text-secondary cursor-pointer no-underline py-1 border-b-2 transition-all duration-200 hover:text-primary ${page === PAGES.GALLERY ? 'text-primary border-accent-primary' : 'border-transparent'}`} onClick={() => setPage(PAGES.GALLERY)}>Gallery</span>
+          <span className={`text-[14px] font-medium text-secondary cursor-pointer no-underline py-1 border-b-2 transition-all duration-200 hover:text-primary border-transparent`} onClick={() => setHistoryOpen?.(true)}>Gallery</span>
           <span className="navbar-link">Credits</span>
         </div>
       </div>
@@ -195,7 +195,7 @@ function HomePage({ setPage }) {
 }
 
 // ── Models Page (Image Generation) ────────────────────────────
-function ModelsPage() {
+function ModelsPage({ generatedImage, setGeneratedImage, imageHistory, setImageHistory }) {
   const [aspectRatio, setAspectRatio] = useState("original");
   const [geoFidelity, setGeoFidelity] = useState(92);
   const [atmosphere, setAtmosphere] = useState(0.65);
@@ -210,7 +210,6 @@ function ModelsPage() {
   const [isRewriting, setIsRewriting] = useState(false);
 
   const [uploadedImage, setUploadedImage] = useState(null);
-  const [generatedImage, setGeneratedImage] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState("");
@@ -471,31 +470,20 @@ function ModelsPage() {
         let dynamicPrompt = "";
         let dynamicNegative = "";
 
-        if (activePrompts.structureType && activePrompts.structureType !== "DEFAULT") {
-          dynamicPrompt += ` ${activePrompts.structureType.toLowerCase()} shot,`;
-        }
-        if (activePrompts.flooring && activePrompts.flooring !== "DEFAULT") {
-          dynamicPrompt += ` flooring: ${activePrompts.flooring.toLowerCase()},`;
-        }
-        if (activePrompts.furniture === "ADD FURNITURE") {
-          dynamicPrompt += ` highly furnished, decorated interior,`;
-        } else if (activePrompts.furniture === "REMOVE FURNITURE") {
-          dynamicNegative += ` furniture, items, tables, chairs, indoor plants, populated,`;
-        } else if (activePrompts.furniture === "MINIMAL") {
-          dynamicPrompt += ` minimalist furniture, clean, empty space,`;
-        }
-        if (activePrompts.material && activePrompts.material !== "DEFAULT") {
-          dynamicPrompt += ` styled as ${activePrompts.material.toLowerCase()},`;
-        }
-        if (activePrompts.lighting && activePrompts.lighting !== "DEFAULT") {
-          dynamicPrompt += ` lighting: ${activePrompts.lighting.toLowerCase()},`;
-        }
-        if (activePrompts.setting && activePrompts.setting !== "DEFAULT") {
-          dynamicPrompt += ` setting: ${activePrompts.setting.toLowerCase()},`;
-        }
+        promptConfig.forEach(cat => {
+          const selectedValue = activePrompts[cat.key];
+          const selectedOption = cat.options.find(opt => opt.value === selectedValue);
+          if (selectedOption && selectedOption.prompt) {
+             if (cat.key === "furniture" && selectedValue === "REMOVE FURNITURE") {
+               dynamicNegative += ` ${selectedOption.prompt},`;
+             } else {
+               dynamicPrompt += ` ${selectedOption.prompt},`;
+             }
+          }
+        });
 
         const finalPrompt = `${prompt},${dynamicPrompt} best quality, extremely detailed, photorealistic architectural rendering`;
-        const baseNegative = (negativePrompt ? negativePrompt + ", " : "") + dynamicNegative + " blurry, low quality, distorted, watermark, cartoon, painting";
+        const baseNegative = (negativePrompt ? negativePrompt + ", " : "") + dynamicNegative + " worst quality, low quality, blurry, noisy, oversaturated, cartoon, illustration, stylized, cgi look, distorted perspective, warped geometry, changed layout, changed furniture, duplicated objects, extra objects, wrong scale, plastic look, fake reflections, unrealistic grain, stretched texture, tiled texture artifacts, excessive gloss, overexposed, underexposed, watermark, text, label, border, frame";
 
         let falImageSize = "landscape_4_3";
         if (aspectRatio === "original" && imageDimensions) {
@@ -511,13 +499,12 @@ function ModelsPage() {
             falImageSize = "portrait_16_9";
         }
 
-        const result = await fal.subscribe("fal-ai/sd15-depth-controlnet", {
+        const result = await fal.subscribe("fal-ai/fast-lightning-sdxl/image-to-image", {
           input: {
             prompt: finalPrompt,
-            control_image_url: cdnImageUrl,
-            negative_prompt: baseNegative,
-            num_inference_steps: 20, // Reduced from 25 for dramatic speedup
-            controlnet_conditioning_scale: 0.9,
+            image_url: cdnImageUrl,
+            strength: 0.65, // Structural preservation
+            num_inference_steps: "4", // Strictly enum '4' for lightning
             image_size: falImageSize
           },
           logs: true,
@@ -533,7 +520,12 @@ function ModelsPage() {
         });
 
         if (result.data && result.data.images && result.data.images.length > 0) {
-          setGeneratedImage(result.data.images[0].url);
+          const newImgUrl = result.data.images[0].url;
+          setGeneratedImage(newImgUrl);
+          setImageHistory?.((prev) => {
+             if (!prev.includes(newImgUrl)) return [newImgUrl, ...prev];
+             return prev;
+          });
           setProgress(100);
           setProgressText("Complete!");
           setRenderId("ARK-" + Math.random().toString(36).substring(2, 8).toUpperCase());
@@ -563,9 +555,9 @@ function ModelsPage() {
           generatedImageSetter={setGeneratedImage}
         />
       )}
-      <div className="grid grid-cols-1 md:grid-cols-[312px_1fr_280px] flex-1 min-h-[calc(100vh-60px)]">
+      <div className="grid grid-cols-1 md:grid-cols-[312px_1fr_280px] flex-1 h-[calc(100vh-60px)] overflow-hidden">
         {/* Left Panel — Model Configuration */}
-        <div className="p-6 border-r border-border-light bg-surface overflow-y-auto max-h-[calc(100vh-60px)]">
+        <div className="p-6 border-r border-border-light bg-surface overflow-y-auto h-full">
         <div className="text-[10px] font-semibold tracking-[1.5px] uppercase text-muted mb-4">Model Configuration</div>
 
         <div className="text-[12px] text-secondary mb-[6px] block">Aspect Ratio</div>
@@ -596,17 +588,61 @@ function ModelsPage() {
         <div className="space-y-3">
           {promptConfig.map((cat) => (
             <div key={cat.key}>
-              <label htmlFor={cat.key} className="text-[12px] font-medium text-primary mb-1.5 block">{cat.category}</label>
-              <select 
-                id={cat.key}
-                value={activePrompts[cat.key]} 
-                onChange={(e) => setActivePrompts(prev => ({ ...prev, [cat.key]: e.target.value }))}
-                className="w-full bg-surface border border-border-light text-primary text-[12px] font-medium rounded-md px-3 py-2 outline-none cursor-pointer focus:border-accent-primary focus:ring-1 focus:ring-accent-primary transition-all duration-150"
-              >
-                {cat.options.map((opt) => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
+              <label className="text-[12px] font-medium text-primary mb-2 block">{cat.category}</label>
+              
+              {cat.type === "select" && (
+                <select 
+                  value={activePrompts[cat.key]} 
+                  onChange={(e) => setActivePrompts(prev => ({ ...prev, [cat.key]: e.target.value }))}
+                  className="w-full bg-surface border border-border-light text-primary text-[12px] font-medium rounded-md px-3 py-2 outline-none cursor-pointer focus:border-accent-primary focus:ring-1 focus:ring-accent-primary transition-all duration-150"
+                >
+                  {cat.options.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              )}
+              
+              {cat.type === "radio" && (
+                <div className="flex flex-wrap gap-2">
+                  {cat.options.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setActivePrompts(prev => ({ ...prev, [cat.key]: opt.value }))}
+                      className={`px-3 py-1.5 border rounded-full text-[11px] font-medium transition-all ${
+                        activePrompts[cat.key] === opt.value
+                          ? 'bg-accent-primary text-on-dark border-accent-primary ring-2 ring-accent-primary ring-offset-1 ring-offset-surface scale-[1.05] shadow-sm'
+                          : 'bg-surface text-secondary border-border-light hover:bg-soft'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {cat.type === "grid" && (
+                <div className="grid grid-cols-5 gap-2">
+                  {cat.options.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setActivePrompts(prev => ({ ...prev, [cat.key]: opt.value }))}
+                      title={opt.label}
+                      className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all duration-200 group ${
+                        activePrompts[cat.key] === opt.value
+                          ? 'border-accent-primary scale-[1.08] shadow-[0_0_15px_rgba(25,164,99,0.5)] z-10 ring-2 ring-offset-2 ring-offset-surface ring-accent-primary'
+                          : 'border-transparent hover:border-border-light hover:scale-[1.02]'
+                      }`}
+                    >
+                      <img src={opt.image} alt={opt.label} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-1">
+                        <span className="text-white text-[9px] font-semibold text-center leading-tight drop-shadow-md">
+                          {opt.label}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -682,17 +718,28 @@ function ModelsPage() {
             </div>
           </div>
         ) : uploadedImage ? (
-          <>
-            <img className="w-full max-h-[70vh] object-contain rounded-lg bg-muted shadow-sm" src={uploadedImage} alt="Uploaded sketch" style={{ opacity: 0.7 }} />
+          <div className="relative w-full flex flex-col items-center">
+            <img 
+              className={`w-full max-h-[70vh] object-contain rounded-lg bg-muted shadow-sm transition-all duration-300 ${generating ? 'opacity-40 blur-[2px] brightness-75' : 'opacity-85'}`} 
+              src={uploadedImage} 
+              alt="Uploaded sketch" 
+            />
             {generating && (
-              <div className="progress-wrap" style={{ position: "absolute", bottom: 40, left: 40, right: 40 }}>
-                <div className="progress-bar-bg">
-                  <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+              <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
+                <div className="w-14 h-14 border-[4px] border-white/20 border-t-accent-primary rounded-full animate-spin shadow-[0_0_15px_rgba(0,0,0,0.2)] mb-5"></div>
+                <div className="px-5 py-2.5 bg-black/65 backdrop-blur-md rounded-xl text-white font-semibold text-[13px] tracking-wide shadow-xl border border-white/10 text-center">
+                  {progressText}
                 </div>
-                <div className="progress-text">{progressText}</div>
               </div>
             )}
-          </>
+            {generating && (
+              <div className="progress-wrap" style={{ position: "absolute", bottom: 40, left: '5%', right: '5%', zIndex: 11 }}>
+                <div className="progress-bar-bg shadow-md">
+                  <div className="progress-bar-fill transition-all duration-300" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           <div 
             className={`w-full h-[560px] border-2 border-dashed rounded-xl flex flex-col items-center justify-center gap-3 text-muted bg-surface cursor-pointer hover:border-accent-primary hover:bg-accent-primary-soft transition-all duration-200 ${isDragging ? 'border-accent-primary bg-accent-primary-soft' : 'border-border-soft'}`} 
@@ -705,22 +752,10 @@ function ModelsPage() {
         )}
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={handleUpload} />
 
-        {/* Generation History */}
-        <div style={{ width: "100%", marginTop: 24 }}>
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-[12px] font-semibold tracking-[0.5px] uppercase text-primary">Generation History</span>
-            <span className="text-[12px] font-semibold tracking-[1px] text-muted">24 TOTAL SESSIONS</span>
-          </div>
-          <div className="flex gap-3 px-6 pb-6 overflow-x-auto">
-            {[IMAGES.gallery1, IMAGES.gallery2, IMAGES.gallery3, IMAGES.gallery4].map((src, i) => (
-              <img key={i} className="w-[140px] h-[100px] rounded-lg object-cover shrink-0 cursor-pointer border-2 border-transparent transition-all duration-200 hover:filter-none hover:border-accent-primary" src={src} alt="" style={{ filter: "grayscale(0.85)" }} onClick={() => setGeneratedImage(src)} />
-            ))}
-          </div>
-        </div>
       </div>
 
       {/* Right Panel — Semantic Prompt & API Config */}
-      <div className="p-6 bg-surface overflow-y-auto max-h-[calc(100vh-60px)]">
+      <div className="p-6 bg-surface overflow-y-auto h-full">
         <div className="flex justify-between items-center mb-4">
           <div className="text-[10px] font-bold tracking-[1.5px] uppercase text-primary">Semantic Prompt</div>
           <button 
@@ -882,25 +917,76 @@ function SettingsModal({ isOpen, onClose, modelEngine, setModelEngine }) {
   );
 }
 
+// ── History Modal ─────────────────────────────────────────────
+function HistoryModal({ isOpen, onClose, imageHistory, setGeneratedImage, setPage }) {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-surface border border-border-light rounded-2xl w-full max-w-[900px] h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center p-6 border-b border-border-light">
+          <h2 className="text-[20px] font-bold text-primary">Generation History</h2>
+          <button className="text-secondary hover:text-primary bg-transparent border-none cursor-pointer text-[20px]" onClick={onClose}>✕</button>
+        </div>
+        <div className="p-6 overflow-y-auto flex-1">
+          {imageHistory.length === 0 ? (
+            <div className="text-center text-muted font-medium mt-20 flex flex-col items-center">
+              <span className="mt-4 text-[15px]">No generations yet. Create something awesome!</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {imageHistory.map((src, i) => (
+                <div 
+                  key={i} 
+                  className="relative aspect-square rounded-xl overflow-hidden cursor-pointer group border-[3px] border-transparent hover:border-accent-primary transition-all duration-200"
+                  onClick={() => {
+                    setGeneratedImage?.(src);
+                    setPage?.(PAGES.MODELS);
+                    onClose();
+                  }}
+                >
+                  <img src={src} alt={`History item ${i}`} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-center items-center p-2">
+                    <span className="bg-accent-primary text-on-dark text-[11px] font-bold px-3 py-1.5 rounded-full tracking-wider uppercase">Load Render</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── App Root ───────────────────────────────────────────────────
 export default function App() {
   const [page, setPage] = useState(PAGES.HOME);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [modelEngine, setModelEngine] = useState("ARKAI-Vision v4.2");
+
+  const [generatedImage, setGeneratedImage] = useState(null);
+  const [imageHistory, setImageHistory] = useState([IMAGES.gallery1, IMAGES.gallery2, IMAGES.gallery3, IMAGES.gallery4]);
 
   return (
     <>
-      <div className="min-h-screen flex flex-col w-full overflow-hidden transform-gpu bg-app">
-        <Navbar page={page} setPage={setPage} showGalleryActions={page === PAGES.GALLERY} setSettingsOpen={setSettingsOpen} />
+      <div className="h-screen flex flex-col w-full overflow-hidden transform-gpu bg-app">
+        <Navbar page={page} setPage={setPage} showGalleryActions={page === PAGES.GALLERY} setSettingsOpen={setSettingsOpen} setHistoryOpen={setHistoryOpen} />
         {page === PAGES.HOME && <HomePage setPage={setPage} />}
-        {page === PAGES.MODELS && <ModelsPage />}
-        {page === PAGES.GALLERY && <GalleryPage />}
+        {page === PAGES.MODELS && <ModelsPage generatedImage={generatedImage} setGeneratedImage={setGeneratedImage} imageHistory={imageHistory} setImageHistory={setImageHistory} />}
       </div>
       <SettingsModal 
         isOpen={settingsOpen} 
         onClose={() => setSettingsOpen(false)}
         modelEngine={modelEngine}
         setModelEngine={setModelEngine}
+      />
+      <HistoryModal
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        imageHistory={imageHistory}
+        setGeneratedImage={setGeneratedImage}
+        setPage={setPage}
       />
     </>
   );
